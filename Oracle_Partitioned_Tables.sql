@@ -170,6 +170,114 @@ RANGE_NO RANGE_DATE COMMENTS
 3      3/30/2017   1 Row Inserted into ranges_q3 partition
 */
 
+-- Creating a multicolumn range-partitioned table
+
+-- To drop permanently from database (If the object exists)
+DROP TABLE mul_range_partitioning PURGE;
+-- To Creating a multicolumn range-partitioned table
+CREATE TABLE mul_range_partitioning
+(
+   year          NUMBER, 
+   month         NUMBER,
+   day           NUMBER,
+   amount_sold   NUMBER
+) 
+PARTITION BY RANGE (year,month) 
+(
+ PARTITION before_2001 VALUES LESS THAN (2001,1),
+ PARTITION q1_2001     VALUES LESS THAN (2001,4),
+ PARTITION q2_2001     VALUES LESS THAN (2001,7),
+ PARTITION q3_2001     VALUES LESS THAN (2001,10),
+ PARTITION q4_2001     VALUES LESS THAN (2002,1),
+ PARTITION future_yyyy VALUES LESS THAN (MAXVALUE,0)
+);
+
+-- 12-DEC-2000
+INSERT INTO mul_range_partitioning VALUES(2000,12,12,1000);
+-- 17-MAR-2001
+INSERT INTO mul_range_partitioning VALUES(2001,3,17,2000);
+-- 1-NOV-2001
+INSERT INTO mul_range_partitioning VALUES(2001,11,1,5000);
+-- 1-JAN-2002
+INSERT INTO mul_range_partitioning VALUES(2002,1,1,4000);
+COMMIT;
+
+SELECT * FROM mul_range_partitioning;
+/*
+YEAR MONTH DAY AMOUNT_SOLD
+---- ----- --- -----------
+2000    12  12        1000
+2001     3  17        2000
+2001    11   1        5000
+2002     1   1        4000
+*/
+
+-- To get the number of rows in data dictionary view
+BEGIN
+    dbms_stats.gather_table_stats
+    (
+     ownname          => 'RADM',
+     tabname          => 'MUL_RANGE_PARTITIONING', 
+     estimate_percent => 10,
+     cascade          => TRUE,
+     degree           => 4, 
+     method_opt       =>'FOR ALL COLUMNS SIZE AUTO'
+    );
+END;
+/
+
+SELECT
+     table_name,
+     partition_name,
+     high_value,
+     high_value_length,
+     partition_position,
+     num_rows
+FROM 
+     all_tab_partitions 
+WHERE table_name = 'MUL_RANGE_PARTITIONING'; 
+/*
+TABLE_NAME             PARTITION_NAME HIGH_VALUE  HIGH_VALUE_LENGTH PARTITION_POSITION NUM_ROWS
+---------------------- -------------- ----------- ----------------- ------------------ --------
+MUL_RANGE_PARTITIONING BEFORE_2001    2001, 1                     7                  1        1
+MUL_RANGE_PARTITIONING Q1_2001        2001, 4                     7                  2        1
+MUL_RANGE_PARTITIONING Q2_2001        2001, 7                     7                  3        0
+MUL_RANGE_PARTITIONING Q3_2001        2001, 10                    8                  4        0
+MUL_RANGE_PARTITIONING Q4_2001        2002, 1                     7                  5        1
+MUL_RANGE_PARTITIONING FUTURE_YYYY    MAXVALUE, 0                11                  6        1
+*/
+
+--The year value for 12-DEC-2000 satisfied the first partition, before_2001, so no further evaluation is needed:
+SELECT * FROM mul_range_partitioning PARTITION(before_2001);
+/*
+YEAR MONTH DAY AMOUNT_SOLD
+---- ----- --- -----------
+2000    12  12        1000
+*/
+
+--The information for 17-MAR-2001 is stored in partition q1_2001. The first partitioning key column, year, does not by itself determine the correct partition, so the second partitioning key column, month, must be evaluated.
+SELECT * FROM mul_range_partitioning PARTITION(q1_2001);
+/*
+YEAR MONTH DAY AMOUNT_SOLD
+---- ----- --- -----------
+2001     3  17        2000
+*/
+
+-- Following the same determination rule as for the previous record, the second column, month, determines partition q4_2001 as correct partition for 1-NOV-2001:
+SELECT * FROM mul_range_partitioning PARTITION(q4_2001);
+/*
+YEAR MONTH DAY AMOUNT_SOLD
+---- ----- --- -----------
+2001    11   1        5000
+*/
+
+-- The partition for 01-JAN-2002 is determined by evaluating only the year column, which indicates the future partition:
+SELECT * FROM mul_range_partitioning PARTITION(future_yyyy);
+/*
+YEAR MONTH DAY AMOUNT_SOLD
+---- ----- --- -----------
+2002     1   1        4000
+*/
 
 2. Hash Partitioning Tables
 
